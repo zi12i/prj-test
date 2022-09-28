@@ -140,7 +140,7 @@
                           :disabled="invalid || !validate"
                           type="submit"
                         >
-                          댓글
+                          수정
                         </v-btn>
                       </form>
                     </ValidationObserver>
@@ -176,39 +176,94 @@
                       replyBox === true && item.data.id === selectedComment.id
                     "
                   >
-                    <template v-for="(item, index) in replyitems">
+                    <template v-for="(reply, index) in item.replies">
                       <v-subheader
-                        v-if="item.header"
-                        :key="item.header"
-                        v-text="item.header"
+                        v-if="reply.header"
+                        :key="reply.header"
+                        v-text="reply.header"
                       ></v-subheader>
 
                       <v-divider
-                        v-else-if="item.divider"
+                        v-else-if="reply.divider"
                         :key="index"
-                        :inset="item.inset"
+                        :inset="reply.inset"
                       ></v-divider>
 
                       <v-list-item
                         v-else
-                        :key="item.title"
+                        :key="reply.title"
                       >
                         <v-list-item-avatar
                           small
                           color="red white--text"
                           class="align-center d-flex font-weight-bold justify-center"
                         >
-                          <span>{{ item.avatar }}</span>
+                          <span>{{ reply.userId.channelName.charAt(0) }}</span>
                         </v-list-item-avatar>
 
                         <v-list-item-content>
                           <v-list-item-title
-                            v-html="item.title"
+                            v-html="reply.userId.channelName"
                           ></v-list-item-title>
                           <v-list-item-subtitle
-                            v-html="item.subtitle"
+                            v-html="reply.text"
                             style="margin: 10px 0 20px 0"
                           ></v-list-item-subtitle>
+                          <div class="btnOrganiser">
+                            <v-btn
+                              elevation="2"
+                              x-small
+                              @click="openReplyEditSection(item)"
+                              ><v-icon>mdi-pencil-outline</v-icon>수정</v-btn
+                            ><v-btn
+                              elevation="2"
+                              x-small
+                              @click="deleteReplyComment(item)"
+                              ><v-icon>mdi-delete-outline</v-icon>삭제</v-btn
+                            >
+                          </div>
+                          <!-- 답글수정 누르면 열릴거 -->
+                          <div
+                            v-if="
+                              editTextbox === true &&
+                              item.data.id === clickedReplyComment.id
+                            "
+                          >
+                            <ValidationObserver
+                              v-slot="{ handleSubmit, invalid, validate }"
+                            >
+                              <form
+                                @submit.prevent="
+                                  handleSubmit(() => {
+                                    editComment(item);
+                                  })
+                                "
+                              >
+                                <ValidationProvider
+                                  name="댓글"
+                                  rules="required|min:1|max:5000"
+                                  v-slot="{ errors }"
+                                >
+                                  <v-text-field
+                                    v-model="formData.text"
+                                    placeholder="수정하실 내용을 입력하세요."
+                                    :error-messages="errors"
+                                    required
+                                  ></v-text-field>
+                                </ValidationProvider>
+                                <v-btn
+                                  depressed
+                                  block
+                                  color="blue"
+                                  class="white--text"
+                                  :disabled="invalid || !validate"
+                                  type="submit"
+                                >
+                                  수정
+                                </v-btn>
+                              </form>
+                            </ValidationObserver>
+                          </div>
                         </v-list-item-content>
                       </v-list-item>
                     </template>
@@ -235,12 +290,12 @@ export default {
     videos: [],
     watchVideo: {},
     watchComment: {},
+    watchReply: {},
     videoUrl: null,
     videoLoading: false,
     editTextbox: false,
     replyBox: false,
     items: [],
-    replyitems: [],
     formData: {
       text: "",
       videoId: "",
@@ -248,6 +303,7 @@ export default {
     },
 
     clickedComment: {},
+    clickedReplyComment: {},
     selectedComment: {},
   }),
   components: {
@@ -318,51 +374,7 @@ export default {
               title: thisItem.userId.channelName,
               subtitle: thisItem.text,
               data: thisItem,
-            };
-
-            newArray.push(pushData);
-
-            count++;
-            if (count === response.data.data.length) {
-              console.log("newArray : ", newArray);
-              this.items = newArray;
-            }
-          });
-        })
-        .catch((error) => {
-          console.log("getCommentData - error : ", error);
-        });
-    },
-    //대댓글 조회 기능
-    // 수정해야 함
-    async getReplyComments(id) {
-      this.watchComment = {};
-      console.log("아이디: ", id);
-      await axios
-        .get(process.env.VUE_APP_API + `/comments/${id}/videos`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        })
-        .then((response) => {
-          console.log(
-            "getCommentData - response : ",
-            response,
-            response.data.data
-          );
-          this.watchComment = response.data.data;
-          console.log("이러면 댓글 뽑히나?", response.data.data[0]);
-
-          let count = 0;
-          const newArray = [{ header: " 댓글" }];
-          response.data.data.forEach((thisItem) => {
-            newArray.push({ divider: true, inset: true });
-
-            const pushData = {
-              avatar: thisItem.userId.channelName.charAt(0),
-              title: thisItem.userId.channelName,
-              subtitle: thisItem.text,
-              data: thisItem,
+              replies: thisItem.replies,
             };
 
             newArray.push(pushData);
@@ -457,6 +469,41 @@ export default {
           this.editTextbox = false;
         });
     },
+    // 대댓글 수정기능
+    async editReplyComment(item) {
+      this.saveLoading = true;
+      this.categoryToEdit = this.postCategory;
+
+      console.log("itemdata : ", item.data.id);
+
+      const axiosBody = {
+        text: this.formData.text,
+        commentId: item.data.id,
+      };
+      console.log("editComment - axiosBody : ", axiosBody);
+
+      await axios
+        .put(
+          `${process.env.VUE_APP_API}/comments/${axiosBody.commentId}`,
+          axiosBody,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          }
+        )
+        .then((response) => {
+          console.log("editComment - response : ", response);
+          console.log("악쉬오쑤 바뒤: ", axiosBody);
+        })
+        .catch((error) => {
+          console.log("editComment - error : ", error);
+        })
+        .finally(() => {
+          this.getComments(this.$route.params.id);
+          this.editTextbox = false;
+        });
+    },
 
     //삭제기능
     // 한개 남았을때는 새로고침해야 삭제됨
@@ -482,7 +529,6 @@ export default {
         })
         .then((response) => {
           console.log("deleteComment - response : ", response);
-          console.log("악쉬오쑤 바뒤: ", axiosBody);
         })
         .catch((error) => {
           console.log("deleteComment - error : ", error);
@@ -495,6 +541,10 @@ export default {
       this.clickedComment = item.data;
       this.editTextbox = true;
     },
+    openReplyEditSection(item) {
+      this.clickedReplyComment = item.data;
+      this.editReplyTextbox = true;
+    },
     openReplySection(item) {
       this.selectedComment = item.data;
       this.replyBox = true;
@@ -504,7 +554,6 @@ export default {
     this.getVideos();
     this.getWatchData(this.$route.params.id);
     this.getComments(this.$route.params.id);
-    this.getReplyComments(this.$route.params.id.id);
   },
 };
 </script>
